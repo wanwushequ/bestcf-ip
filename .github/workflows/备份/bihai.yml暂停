@@ -1,0 +1,125 @@
+name: bihai
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    # 【全局配置区】在这里直接回车换行编辑，无需 \n
+        # www.visa.cn:443#优选域名|www.visa.cn
+        # store.ubi.com:443#优选域名|store.ubi.com
+        # shopify.com:443#优选域名|shopify.com
+        # ip.sb:443#优选域名|ip.sb
+        # time.is:443#优选域名|time.is
+        # malaysia.com:443#优选域名|malaysia.com
+        # singapore.com:443#优选域名|singapore.com
+        # indonesia.com:443#优选域名|indonesia.com
+        # russia.com:443#优选域名|russia.com
+        # japan.com:443#优选域名|japan.com
+        # saas.sin.fan:443#优选域名|saas.sin.fan
+        # cf.090227.xyz:443#优选域名|cf.090227.xyz
+        # cf.tencentapp.cn:443#优选域名|cf.tencentapp.cn
+    env:
+      AD_HEADER: |
+        cloudflare-ech.com:443#关注YouTube@真香定律
+        hongkongairport.com:443#请将自动更新订阅设为360分钟
+        store.ubi.com:443#优选域名|store.ubi.com
+        shopify.com:443#优选域名|shopify.com
+        youxuan.cf.090227.xyz:443#优选域名|cf.090227.xyz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare directory
+        run: mkdir -p bh
+
+      - name: Download CSV files
+        run: |
+          curl -L -o bh/cucc.csv https://bihai.cf/CFIP/CUCC/standard.csv
+          curl -L -o bh/cmcc.csv https://bihai.cf/CFIP/CMCC/standard.csv
+
+      - name: Process Data (Districts & Mixed)
+        run: |
+          # 引用多行变量，YAML 的 | 符号会自动处理换行
+          echo "${{ env.AD_HEADER }}" > header.tmp
+
+          COUNTRIES=("US" "JP" "DE" "GB" "HK" "CA" "SG" "KR" "FR" "NL")
+          echo -n "" > bh/cucc-mixed.txt
+          echo -n "" > bh/cmcc-mixed.txt
+          echo -n "" > bh/ctcc-mixed.txt
+
+          for CODE in "${COUNTRIES[@]}"; do
+            [ "$CODE" == "US" ] && { MIX_LIMIT=40; CTCC_SUB_LIMIT=20; } || { MIX_LIMIT=20; CTCC_SUB_LIMIT=10; }
+
+            grep ",$CODE," bh/cucc.csv | head -n 50 | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/联通/g' -e 's/,/|/g' -e 's/ //g' | grep -v '^$' > "bh/cucc-${CODE,,}.txt"
+            grep ",$CODE," bh/cmcc.csv | head -n 50 | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/移动/g' -e 's/,/|/g' -e 's/ //g' | grep -v '^$' > "bh/cmcc-${CODE,,}.txt"
+            
+            sed '1d' "bh/cucc-${CODE,,}.txt" 2>/dev/null | head -n 25 > cucc_sub.tmp || true
+            sed '1d' "bh/cmcc-${CODE,,}.txt" 2>/dev/null | head -n 25 > cmcc_sub.tmp || true
+            cat cucc_sub.tmp cmcc_sub.tmp | sed -e 's/联通/电信/g' -e 's/移动/电信/g' | sort -t'|' -k8,8nr | grep -v '^$' > "bh/ctcc-${CODE,,}.txt"
+
+            grep ",$CODE," bh/cucc.csv | head -n $MIX_LIMIT | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/联通/g' -e 's/,/|/g' -e 's/ //g' | grep -v '^$' >> bh/cucc-mixed.txt
+            grep ",$CODE," bh/cmcc.csv | head -n $MIX_LIMIT | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/移动/g' -e 's/,/|/g' -e 's/ //g' | grep -v '^$' >> bh/cmcc-mixed.txt
+            grep ",$CODE," bh/cucc.csv | head -n $CTCC_SUB_LIMIT | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/电信/g' -e 's/,/|/g' -e 's/ //g' > ctcc_mix_sub.tmp || true
+            grep ",$CODE," bh/cmcc.csv | head -n $CTCC_SUB_LIMIT | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/电信/g' -e 's/,/|/g' -e 's/ //g' >> ctcc_mix_sub.tmp || true
+            cat ctcc_mix_sub.tmp | sort -t'|' -k8,8nr | grep -v '^$' >> bh/ctcc-mixed.txt
+
+            for F in "bh/cucc-${CODE,,}.txt" "bh/cmcc-${CODE,,}.txt" "bh/ctcc-${CODE,,}.txt"; do
+              if [ -s "$F" ]; then
+                sed -i 's/$/mb/' "$F"
+                cat header.tmp "$F" > temp.txt && mv temp.txt "$F"
+              fi
+            done
+          done
+
+          for MF in bh/cucc-mixed.txt bh/cmcc-mixed.txt bh/ctcc-mixed.txt; do
+            sed -i 's/$/mb/' "$MF"
+            cat header.tmp "$MF" > temp.txt && mv temp.txt "$MF"
+          done
+          rm -f header.tmp
+
+      - name: Process Original All Data
+        run: |
+          # 同样直接引用
+          echo "${{ env.AD_HEADER }}" > header.tmp
+          LINE_COUNT=$(wc -l < header.tmp)
+
+          sed -n '2,51p' bh/cucc.csv | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/联通/g' -e 's/,/|/g' -e 's/ //g' | grep -v '^$' > bh/cucc.txt
+          sed -n '2,51p' bh/cmcc.csv | sed -e 's/,/:/' -e 's/,/#/' -e 's/true/移动/g' -e 's/,/|/g' -e 's/ //g' | grep -v '^$' > bh/cmcc.txt
+          
+          sed '1d' bh/cucc.txt | head -n 25 > cucc_all.tmp
+          sed '1d' bh/cmcc.txt | head -n 25 > cmcc_all.tmp
+          cat cucc_all.tmp cmcc_all.tmp | sed -e 's/联通/电信/g' -e 's/移动/电信/g' | sort -t'|' -k8,8nr | grep -v '^$' > bh/ctcc.txt
+          
+          for F in bh/cucc.txt bh/cmcc.txt bh/ctcc.txt; do
+            sed -i 's/$/mb/' "$F"
+            cat header.tmp "$F" > temp.txt && mv temp.txt "$F"
+          done
+          
+          # 动态拼接逻辑保持不变
+          cat bh/ctcc.txt > bh/all.txt
+          sed "1,${LINE_COUNT}d" bh/cucc.txt >> bh/all.txt
+          sed "1,${LINE_COUNT}d" bh/cmcc.txt >> bh/all.txt
+          
+          find bh/ -name "*.txt" -exec sed -i 's/ //g' {} +
+          find bh/ -name "*.txt" -exec sed -i '/^$/d' {} +
+          rm -f *.tmp header.tmp temp.txt
+
+      - name: Commit and Push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add bh/
+          if [ -n "$(git status --porcelain bh/)" ]; then
+            git commit -m "Auto update (Prettier Multi-line Header): $(date +'%Y-%m-%d %H:%M')"
+            git push
+          else
+            echo "No changes"
+          fi

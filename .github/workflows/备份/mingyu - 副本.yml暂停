@@ -1,0 +1,41 @@
+name: mingyu
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  download-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download and Save File
+        run: |
+          # 1. 创建文件夹（如果不存在）
+          mkdir -p mingyu
+          
+          # 2. 直接下载文件并重命名为 all.txt
+          # 使用 -s (silent) 模式，-o 指定输出路径
+          curl -s https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt -o mingyu/all.txt
+          
+          echo "文件已下载至 mingyu/all.txt"
+
+      - name: Commit and Push
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add mingyu/all.txt
+          
+          # 检查是否有内容变动，避免生成多余的空提交
+          if git diff --staged --quiet; then
+            echo "文件内容无变化，跳过推送。"
+          else
+            git commit -m "Auto Update MingYu IPs: $(date +'%Y-%m-%d %H:%M:%S')"
+            git pull --rebase origin main
+            git push origin main
+          fi

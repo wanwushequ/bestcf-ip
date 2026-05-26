@@ -1,0 +1,160 @@
+name: tiancheng
+
+on:
+  workflow_dispatch:
+
+# 必须有写入权限，否则无法推送更新
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Process and Compare
+        run: |
+          # 1. 确保目标文件夹存在
+          mkdir -p tiancheng
+          
+          # 2. 获取并校验元数据 (带 3 次重试机制)
+          echo "正在从远程服务器抓取数据..."
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          response=""
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            response=$(curl -f -s "https://vl.cm.soso.edu.kg/sub?host=123&uuid=456")
+            
+            if [ $? -eq 0 ] && [ -n "$response" ]; then
+              echo "✅ 数据抓取成功！"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️ 抓取失败，正在进行第 $RETRY_COUNT 次重试 (2秒后)..."
+                sleep 2
+              else
+                echo "❌ 已达到最大重试次数，本次任务跳过。"
+                echo "changes_detected=false" >> $GITHUB_ENV
+                exit 0
+              fi
+            fi
+          done
+
+          # 解码并校验内容
+          decoded_data=$(echo "$response" | base64 -d 2>/dev/null)
+          if [[ ! "$decoded_data" =~ "vless://" ]]; then
+            echo "错误：解码数据格式非法，本次任务跳过。"
+            echo "changes_detected=false" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          # 3. 解析节点并归类地理位置
+          echo "数据校验通过，开始解析节点..."
+          rm -f new_nodes.tmp
+          echo "$decoded_data" | while IFS= read -r line; do
+            if [[ -z "$line" ]]; then continue; fi
+            host_port=$(echo "$line" | grep -oP '(?<=@).*?(?=\?)')
+            
+            if [[ "$line" =~ "HKG" || "$line" =~ "HK" ]]; then location="港岛古惑 | HK"
+            elif [[ "$line" =~ "SIN" || "$line" =~ "SG" ]]; then location="坡县狮城 | SG"
+            elif [[ "$line" =~ "JPN" || "$line" =~ "JP" ]]; then location="小日本子 | JP"
+            elif [[ "$line" =~ "TWN" || "$line" =~ "TW" ]]; then location="宝岛正妹 | TW"
+            elif [[ "$line" =~ "KOR" || "$line" =~ "KR" ]]; then location="泡菜欧巴 | KR"
+            elif [[ "$line" =~ "USA" || "$line" =~ "US" ]]; then location="大漂亮国 | US"
+            elif [[ "$line" =~ "GBR" || "$line" =~ "UK" ]]; then location="大嘤帝国 | UK"
+            elif [[ "$line" =~ "RUS" || "$line" =~ "RU" ]]; then location="战斗民族 | RU"
+            elif [[ "$line" =~ "DEU" || "$line" =~ "DE" ]]; then location="元首复活 | DE"
+            else location="N/A"; fi
+
+            if [[ ! -z "$host_port" ]]; then
+              echo "${host_port}#${location} | ${host_port}" >> new_nodes.tmp
+            fi
+          done
+
+          # 4. 对比逻辑 (以 all.txt 的节点变化为判断依据)
+          OLD_FILE="tiancheng/all.txt"
+          SHOULD_COMMIT=false
+
+          if [ -f "$OLD_FILE" ]; then
+            sed '1d;$d' "$OLD_FILE" > old_nodes.tmp
+            if ! diff -q old_nodes.tmp new_nodes.tmp > /dev/null; then
+              echo "检测到内容更新，准备提交。"
+              SHOULD_COMMIT=true
+            else
+              echo "内容无变化，无需操作。"
+              SHOULD_COMMIT=false
+            fi
+          else
+            echo "初次抓取，创建新文件。"
+            SHOULD_COMMIT=true
+          fi
+
+          # 5. 构建最终文件与备份
+          if [ "$SHOULD_COMMIT" = true ]; then
+            BJ_TIME=$(TZ='Asia/Shanghai' date +'%m-%d %H:%M')
+            FOOTER="bestcf.030101.xyz:443#▲ 优选IP | 分享优选网 BestCF.pages.dev | 感谢天诚"
+            
+            # 备份逻辑
+            if [ -f "$OLD_FILE" ]; then
+              BACKUP_NAME=$(TZ='Asia/Shanghai' date +%Y-%m-%d-%H_%M_%S)
+              mkdir -p tiancheng/old
+              cp "$OLD_FILE" "tiancheng/old/${BACKUP_NAME}.txt"
+            fi
+            
+            # 先清除旧的地区文件（防止旧数据残留被提交）
+            rm -f tiancheng/hk.txt tiancheng/sg.txt tiancheng/jp.txt tiancheng/tw.txt tiancheng/kr.txt tiancheng/us.txt
+
+            # --- 生成各版本文件 ---
+
+            # 1. All 版
+            echo "saas.sin.fan:443#▼ 优选IP 全量版 | ${BJ_TIME} | YouTube@真香定律" > "tiancheng/all.txt"
+            [ -f new_nodes.tmp ] && cat new_nodes.tmp >> "tiancheng/all.txt"
+            echo "$FOOTER" >> "tiancheng/all.txt"
+
+            # 2. Mini 版 (每组取前3个)
+            echo "saas.sin.fan:443#▼ 优选IP 迷你版 | ${BJ_TIME} | YouTube@真香定律" > "tiancheng/mini.txt"
+            if [ -f new_nodes.tmp ]; then
+                awk -F'|' '{
+                    label = $2; 
+                    count[label]++; 
+                    if (count[label] <= 3) {
+                        print $0
+                    }
+                }' new_nodes.tmp >> "tiancheng/mini.txt"
+            fi
+            echo "$FOOTER" >> "tiancheng/mini.txt"
+
+            # 3. 地区分类版 (仅当有节点时生成)
+            for loc in HK SG JP TW KR US; do
+              file_name=$(echo "$loc" | tr '[:upper:]' '[:lower:]')
+              target_file="tiancheng/${file_name}.txt"
+              
+              # 检查是否存在对应地区的节点
+              if grep -q "| ${loc}" new_nodes.tmp 2>/dev/null; then
+                  echo "正在生成 ${file_name}.txt..."
+                  echo "saas.sin.fan:443#▼ 优选IP ${loc}版 | ${BJ_TIME} | YouTube@真香定律" > "$target_file"
+                  grep "| ${loc}" new_nodes.tmp >> "$target_file"
+                  echo "$FOOTER" >> "$target_file"
+              else
+                  echo "跳过 ${file_name}.txt：未发现对应节点。"
+              fi
+            done
+            
+            echo "COMMIT_TIME=$BJ_TIME" >> $GITHUB_ENV
+            echo "changes_detected=true" >> $GITHUB_ENV
+          else
+            echo "changes_detected=false" >> $GITHUB_ENV
+          fi
+
+      - name: Commit and Push
+        if: env.changes_detected == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "TianCheng ${{ env.COMMIT_TIME }}"
+          file_pattern: 'tiancheng/*.txt tiancheng/old/*.txt'
+          skip_dirty_check: true
+          disable_globbing: false

@@ -1,0 +1,100 @@
+name: mingyu
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  download-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Fetch and Process IPs
+        run: |
+          python << 'EOF'
+          import requests
+          import os
+
+          dir_name = "mingyu"
+          os.makedirs(dir_name, exist_ok=True)
+
+          # 定义数据源配置
+          sources = [
+              {
+                  "url": "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt",
+                  "file": "ipv4.txt",
+                  "type": "v4"
+              },
+              {
+                  "url": "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv6.txt",
+                  "file": "ipv6.txt",
+                  "type": "v6"
+              }
+          ]
+
+          for src in sources:
+              try:
+                  response = requests.get(src["url"], timeout=15)
+                  if response.status_code == 200:
+                      lines = response.text.splitlines()
+                      processed_lines = []
+                      raw_ip_lines = []  # 新增：用于存储纯 IP 格式
+                      
+                      for ip in lines:
+                          ip = ip.strip()
+                          if not ip: continue
+                          
+                          if src["type"] == "v4":
+                              # 格式 1: 1.1.1.1:443#1.1.1.1
+                              processed_lines.append(f"{ip}:443#{ip}")
+                              # 格式 2: 1.1.1.1 (纯 IP)
+                              raw_ip_lines.append(ip)
+                          else:
+                              # 格式: [IPv6]:443#[IPv6]
+                              processed_lines.append(f"[{ip}]:443#[{ip}]")
+                      
+                      # 保存标准处理后的文件
+                      file_path = os.path.join(dir_name, src["file"])
+                      with open(file_path, "w", encoding="utf-8") as f:
+                          f.write("\n".join(processed_lines))
+                      
+                      # --- 新增逻辑：如果是 IPv4，额外保存一份纯 IP 文件 ---
+                      if src["type"] == "v4":
+                          only_ip_path = os.path.join(dir_name, "ipv4-onlyip.txt")
+                          with open(only_ip_path, "w", encoding="utf-8") as f:
+                              f.write("\n".join(raw_ip_lines))
+                          print("成功处理并保存: ipv4-onlyip.txt")
+
+                      print(f"成功处理并保存: {src['file']}")
+              except Exception as e:
+                  print(f"处理 {src['file']} 时出错: {e}")
+          EOF
+
+      - name: Commit and Push
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # 使用通配符添加所有 txt 变更，确保包含新增的 ipv4-onlyip.txt
+          git add mingyu/*.txt
+          
+          if git diff --staged --quiet; then
+            echo "文件内容无变化，跳过推送。"
+          else
+            BJ_TIME=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')
+            git commit -m "MingYu $BJ_TIME"
+            git pull --rebase origin main
+            git push origin main
+          fi   

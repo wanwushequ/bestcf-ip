@@ -1,0 +1,106 @@
+name: gslege
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Fetch and Process Data
+        run: |
+          mkdir -p gslege
+          BJ_TIME=$(date -d "+8 hours" "+%m-%d %H:%M")
+          HAS_CHANGES=false
+          
+          URLS=(
+            "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/Cfxyz.txt"
+            "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/JP.txt"
+            "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/NL.txt"
+            "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/US.txt"
+            "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/DE.txt"
+            "https://raw.githubusercontent.com/gslege/CloudflareIP/refs/heads/main/SG.txt"
+          )
+
+          for URL in "${URLS[@]}"; do
+            FILENAME=$(basename "$URL")
+            TARGET_FILE="gslege/$FILENAME"
+            TMP_NEW="new_${FILENAME}.tmp"
+            
+            if [ "$FILENAME" = "Cfxyz.txt" ]; then
+                REGION="Speed"
+            else
+                REGION=$(echo "${FILENAME%.*}" | tr '[:lower:]' '[:upper:]')
+            fi
+            
+            echo "正在处理: $FILENAME (地区: $REGION)"
+            
+            # 使用 -H 禁用缓存，确保获取最新数据
+            curl -sL -H "Cache-Control: no-cache" "$URL" | awk '{
+                gsub(/\r/, "", $0);
+                if (length($0) > 0) {
+                    n = split($0, a, "#");
+                    ip_full = a[1];
+                    remark = a[2];
+                    split(ip_full, b, ":");
+                    pure_ip = b[1];
+                    if (ip_full !~ /:/) { output_head = ip_full ":443" } else { output_head = ip_full }
+                    if (n > 1) { print output_head "#" remark " | " pure_ip } else { print output_head " | " pure_ip }
+                }
+            }' | sort -u > "$TMP_NEW"
+
+            if [ ! -s "$TMP_NEW" ]; then
+              echo "跳过: $FILENAME 内容为空"
+              rm -f "$TMP_NEW"
+              continue
+            fi
+
+            FILE_CHANGED=false
+            if [ ! -f "$TARGET_FILE" ]; then
+                FILE_CHANGED=true
+            else
+                # 关键修正：将当前目标文件也临时处理（去头尾+去回车+排序）后再对比
+                # 这样对比的是“纯数据”，不受首行时间戳影响
+                sed '1d;$d' "$TARGET_FILE" | sed 's/\r//g' | sort -u > old_clean.tmp
+                if ! diff -q old_clean.tmp "$TMP_NEW" > /dev/null; then
+                    FILE_CHANGED=true
+                fi
+                rm -f old_clean.tmp
+            fi
+
+            if [ "$FILE_CHANGED" = true ]; then
+                HAS_CHANGES=true
+                echo "-> 检测到实际内容变更，正在更新文件"
+                echo "saas.sin.fan:443#▼ 优选IP $REGION | $BJ_TIME | YouTube@真香定律" > "$TARGET_FILE"
+                cat "$TMP_NEW" >> "$TARGET_FILE"
+                echo "bestcf.030101.xyz:443#▲ 优选IP | 分享免费优选网 BestCF.pages.dev | 感谢Gslege" >> "$TARGET_FILE"
+            else
+                echo "-> 内容无实质变化，跳过"
+            fi
+            
+            rm -f "$TMP_NEW"
+          done
+
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_ENV
+
+      - name: Commit and Push
+        run: |
+          if [ "${{ env.has_changes }}" = "true" ]; then
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add gslege/
+            # 检查是否有文件真正被 git 识别为变化
+            if git diff --staged --quiet; then
+              echo "Git 未检测到文件变化，取消提交。"
+            else
+              git commit -m "Gslege $(date -d "+8 hours" '+%Y-%m-%d %H:%M:%S')"
+              git pull --rebase origin main
+              git push origin main
+            fi
+          fi

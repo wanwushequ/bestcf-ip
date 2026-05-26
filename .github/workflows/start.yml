@@ -1,0 +1,56 @@
+name: "START"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 执行工作流序列
+        run: |
+          # 定义任务列表：文件名|等待时间(秒)
+          # 你可以在这里非常方便地编辑顺序和时间
+          WORKFLOWS=(
+            "gslege.yml|20"
+            "vvhan.yml|20"
+            "wetest.yml|20"
+            "nirevil.yml|20"
+            "mingyu.yml|20"
+            "zhixuanwang.yml|20"
+            "haogege.yml|20"
+            "ircf.yml|20"
+            "moistr.yml|40"
+            "tiancheng.yml|40"
+            "tiancheng-sn.yml|40"
+            "uouin.yml|60"
+            "vps789.yml|0"
+          )
+
+          for item in "${WORKFLOWS[@]}"; do
+            IFS="|" read -r FILE WAIT_TIME <<< "$item"
+            
+            echo "---------------------------------------"
+            echo "▶️ 正在启动: $FILE"
+            
+            # 使用 || true 确保即使失败，脚本也不会退出
+            if gh workflow run "$FILE" --ref main; then
+              echo "✅ $FILE 启动成功"
+            else
+              echo "❌ $FILE 启动失败，跳过并继续下一个任务..."
+            fi
+            
+            if [ "$WAIT_TIME" -gt 0 ]; then
+              echo "⌛ 等待 ${WAIT_TIME} 秒后执行下一个任务..."
+              sleep "$WAIT_TIME"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}

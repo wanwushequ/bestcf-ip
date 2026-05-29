@@ -21,6 +21,7 @@ jobs:
           WORKFLOWS=(
             "gslege.yml|20"
             "vvhan.yml|20"
+            "cfyes.yml|20"
             "wetest.yml|20"
             "nirevil.yml|20"
             "mingyu.yml|20"
